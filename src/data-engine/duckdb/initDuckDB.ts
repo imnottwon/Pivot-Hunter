@@ -3,20 +3,26 @@ import * as duckdb from '@duckdb/duckdb-wasm'
 let dbPromise: Promise<duckdb.AsyncDuckDB> | null = null
 
 /** Self-hosted bundle paths — copied into `public/duckdb` by vite-plugin-static-copy
- * at build time so the app never depends on a CDN (see vite.config.ts). */
+ * at build time so the app never depends on a CDN (see vite.config.ts). Built
+ * from Vite's BASE_URL rather than hardcoded absolute `/duckdb/...` paths —
+ * the app isn't always served from the domain root (e.g. a GitHub Pages
+ * project site lives under `/<repo-name>/`), and a root-relative path would
+ * 404 there. */
+const assetBase = import.meta.env.BASE_URL
+
 const MANUAL_BUNDLES: duckdb.DuckDBBundles = {
   mvp: {
-    mainModule: '/duckdb/duckdb-mvp.wasm',
-    mainWorker: '/duckdb/duckdb-browser-mvp.worker.js',
+    mainModule: `${assetBase}duckdb/duckdb-mvp.wasm`,
+    mainWorker: `${assetBase}duckdb/duckdb-browser-mvp.worker.js`,
   },
   eh: {
-    mainModule: '/duckdb/duckdb-eh.wasm',
-    mainWorker: '/duckdb/duckdb-browser-eh.worker.js',
+    mainModule: `${assetBase}duckdb/duckdb-eh.wasm`,
+    mainWorker: `${assetBase}duckdb/duckdb-browser-eh.worker.js`,
   },
   coi: {
-    mainModule: '/duckdb/duckdb-coi.wasm',
-    mainWorker: '/duckdb/duckdb-browser-coi.worker.js',
-    pthreadWorker: '/duckdb/duckdb-browser-coi.pthread.worker.js',
+    mainModule: `${assetBase}duckdb/duckdb-coi.wasm`,
+    mainWorker: `${assetBase}duckdb/duckdb-browser-coi.worker.js`,
+    pthreadWorker: `${assetBase}duckdb/duckdb-browser-coi.pthread.worker.js`,
   },
 }
 
