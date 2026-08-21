@@ -16,8 +16,6 @@ Fast, filterable, sortable viewing of large forensic CSV timelines, with arbitra
 - **Stats**: `recharts` for the frequency histogram; gap and outlier views are tables. All three views drill down into the grid by clicking a bar/row.
 - **Self-hosted**: DuckDB-WASM's `.wasm`/worker assets are copied into `public/duckdb` at build time — no CDN dependency, works fully offline.
 
-See `.claude/plans/` (or your own notes) for the fuller design writeup if you're extending this.
-
 ## Requirements
 
 This is a Node.js/TypeScript project, not a Python one — there's no `requirements.txt` because the Node equivalent already exists: **`package.json`** lists every dependency and **`package-lock.json`** pins their exact versions. Running `npm install` (below) reads both and installs precisely what's needed; nothing else to fetch or track separately.
