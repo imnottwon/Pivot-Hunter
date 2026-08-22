@@ -1,6 +1,6 @@
 # Pivot Hunter
 
-A browser-based, offline-first timeline explorer for DFIR CSV exports (EvtxECmd, MFTECmd, IIS/W3C logs, and similar). Loads entirely client-side — no server, no data leaves the machine.
+A browser-based, offline-first timeline explorer for DFIR CSV and JSON exports (EvtxECmd, MFTECmd, IIS/W3C logs, and similar). Loads entirely client-side — no server, no data leaves the machine.
 
 **Live demo:** https://imnottwon.github.io/Pivot-Hunter/
 
@@ -11,6 +11,7 @@ Fast, filterable, sortable viewing of large forensic CSV timelines, with arbitra
 ## Architecture
 
 - **Data engine**: [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) — CSVs are streamed straight from the browser `File` handle into an in-browser SQL database. The grid, filters, sorting, grouping, and stats are all paginated/aggregated SQL queries, not JS array operations, so it stays fast at millions of rows.
+- **JSON ingestion**: `.json` files (array of records, a single object, or NDJSON) are flattened in JS — nested objects become dot-notated columns at any depth, arrays are kept as JSON text — then converted to CSV text and loaded through the same `read_csv` path as a real CSV file (see `src/data-engine/duckdb/ingestJson.ts` for why this is JS-side rather than DuckDB's native JSON reader).
 - **Grid**: `@tanstack/react-virtual` for row virtualization, backed by windowed SQL queries.
 - **Persistence**: `dexie` (IndexedDB) for row tags and highlight rules, keyed by file fingerprint, synced into an in-memory DuckDB table so tagging/highlighting can be plain SQL joins.
 - **Stats**: `recharts` for the frequency histogram; gap and outlier views are tables. All three views drill down into the grid by clicking a bar/row.
@@ -101,3 +102,4 @@ To cut a new release:
 - **Port 5173 already in use** — another process (maybe a previous `npm run dev` that didn't shut down) is holding it. Stop that process, or let Vite prompt you to use the next free port.
 - **Slower-than-expected loading on a deployed build** — DuckDB-WASM's fastest (multi-threaded) mode needs the page to be served with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` headers. These are already set for `npm run dev`/`npm run preview` in `vite.config.ts`; if you deploy `dist/` elsewhere, make sure your static host sends the same two headers, or it silently falls back to a slower single-threaded mode instead of failing. **GitHub Pages cannot send custom headers at all**, so the hosted demo above always runs single-threaded — still fully functional, just not as fast on very large files as a locally-run copy with the headers in place.
 - **Frequency/outlier bucketing** deliberately avoids DuckDB's `date_trunc`/`to_timestamp` — those can trigger an attempt to fetch the ICU extension over the network, which breaks in this offline-first setup. Bucketing uses core epoch-arithmetic instead (see `src/data-engine/queries/statsQueries.ts`) — not something you need to configure, just noted here in case you're extending that file.
+- **JSON ingestion is JS-side, not DuckDB's native JSON reader** for the same underlying reason — DuckDB-WASM's `json` extension isn't statically bundled in this package, and autoloading it fails offline with the same WebAssembly memory-model error the ICU extension hits, not merely a network-availability problem. `src/data-engine/duckdb/ingestJson.ts` flattens and converts to CSV text in JS instead, then reuses the normal `read_csv` path. Also noted only for anyone extending that file — nothing to configure.

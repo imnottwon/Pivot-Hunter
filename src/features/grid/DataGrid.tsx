@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
 import { buildGridColumns } from './columns'
 import { GRID_ROW_HEIGHT, useGridCount, useGridPages, usePageIndicesForRange } from './useGridQuery'
 import {
@@ -10,6 +10,7 @@ import {
 } from './useGroupedRows'
 import { GroupByBar } from './GroupByBar'
 import { FilterContextMenu, type FilterContextMenuState } from './FilterContextMenu'
+import { CellDetailModal, type CellDetailState } from './CellDetailModal'
 import { useWorkspaceStore, type TabState } from '../../state/workspaceStore'
 import { useRowTags } from '../tagging/useRowTags'
 import { HighlightRulesPanel } from '../tagging/HighlightRulesPanel'
@@ -21,6 +22,7 @@ import { USER_FACING_OPERATORS, type ColumnInfo, type FilterExpr, type FilterOpe
 const FILTER_DEBOUNCE_MS = 250
 const TAG_COL_WIDTH = 36
 const GROUP_INDENT_PX = 18
+const MIN_COLUMN_WIDTH = 60
 const QUICK_TAG_LABEL = 'flagged'
 const QUICK_TAG_COLOR = '#f6c945'
 const EMPTY_FLAT_ITEMS: GroupFlatItem[] = []
@@ -39,12 +41,26 @@ export function DataGrid({ tab }: { tab: TabState }) {
   const setSort = useWorkspaceStore((s) => s.setSort)
   const setHighlightedOnly = useWorkspaceStore((s) => s.setHighlightedOnly)
   const setGroupByColumns = useWorkspaceStore((s) => s.setGroupByColumns)
+  const setColumnOrder = useWorkspaceStore((s) => s.setColumnOrder)
+  const setColumnWidth = useWorkspaceStore((s) => s.setColumnWidth)
 
   const [searchInput, setSearchInput] = useState(tab.searchTerm)
   const [columnFilterInputs, setColumnFilterInputs] = useState<Record<string, ColumnFilterInput>>({})
   const [rulesPanelOpen, setRulesPanelOpen] = useState(false)
   const [contextMenu, setContextMenu] = useState<FilterContextMenuState | null>(null)
+  const [cellDetail, setCellDetail] = useState<CellDetailState | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(() => new Set())
+
+  // Column resize: a ref carries the live value across mousemove ticks
+  // (avoids re-attaching window listeners per drag and stale closures);
+  // `liveResize` mirrors it into state purely to drive the re-render.
+  const resizingRef = useRef<{ column: string; startX: number; startWidth: number; width: number } | null>(null)
+  const [liveResize, setLiveResize] = useState<{ column: string; width: number } | null>(null)
+
+  // Column reorder (native HTML5 drag-and-drop, matching this codebase's
+  // preference for hand-rolled interactions over a DnD dependency).
+  const [draggedColumn, setDraggedColumn] = useState<string | null>(null)
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
 
   const { tagsByRowId, tagRow, untagRow } = useRowTags(tab)
 
@@ -137,13 +153,94 @@ export function DataGrid({ tab }: { tab: TabState }) {
     return page.rows[index % 200]
   }
 
-  const gridColumns = useMemo(() => buildGridColumns(tab.columns), [tab.columns])
+  const gridColumns = useMemo(
+    () => buildGridColumns(tab.columns, tab.columnOrder, tab.columnWidths),
+    [tab.columns, tab.columnOrder, tab.columnWidths],
+  )
+  // Header and cells both read from this so a resize-in-progress previews at
+  // its live width everywhere, not just in the header, before it's committed
+  // to the store on mouseup.
+  const displayColumns = useMemo(() => {
+    if (!liveResize) return gridColumns
+    return gridColumns.map((c) => (c.name === liveResize.column ? { ...c, width: liveResize.width } : c))
+  }, [gridColumns, liveResize])
   const columnTypeByName = useMemo(() => {
     const map = new Map<string, string>()
     for (const c of tab.columns) map.set(c.name, c.duckType)
     return map
   }, [tab.columns])
-  const tableWidth = TAG_COL_WIDTH + gridColumns.reduce((sum, c) => sum + c.width, 0)
+  const tableWidth = TAG_COL_WIDTH + displayColumns.reduce((sum, c) => sum + c.width, 0)
+
+  const startColumnResize = (e: MouseEvent, columnName: string, currentWidth: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+    resizingRef.current = { column: columnName, startX: e.clientX, startWidth: currentWidth, width: currentWidth }
+    setLiveResize({ column: columnName, width: currentWidth })
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  useEffect(() => {
+    const handleMouseMove = (e: globalThis.MouseEvent) => {
+      const active = resizingRef.current
+      if (!active) return
+      const delta = e.clientX - active.startX
+      active.width = Math.max(MIN_COLUMN_WIDTH, active.startWidth + delta)
+      setLiveResize({ column: active.column, width: active.width })
+    }
+    const handleMouseUp = () => {
+      const active = resizingRef.current
+      if (!active) return
+      resizingRef.current = null
+      setColumnWidth(tab.fileId, active.column, active.width)
+      setLiveResize(null)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [tab.fileId, setColumnWidth])
+
+  const reorderColumn = (draggedName: string, targetName: string) => {
+    if (draggedName === targetName) return
+    const order = tab.columnOrder
+    const from = order.indexOf(draggedName)
+    if (from === -1 || !order.includes(targetName)) return
+    const next = [...order]
+    next.splice(from, 1)
+    const insertAt = next.indexOf(targetName)
+    next.splice(insertAt, 0, draggedName)
+    setColumnOrder(tab.fileId, next)
+  }
+
+  const handleHeaderDragStart = (e: DragEvent, columnName: string) => {
+    setDraggedColumn(columnName)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', columnName) // Firefox requires setData for the drag to proceed
+  }
+
+  const handleHeaderDragOver = (e: DragEvent, columnName: string) => {
+    if (!draggedColumn || draggedColumn === columnName) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverColumn(columnName)
+  }
+
+  const handleHeaderDrop = (e: DragEvent, columnName: string) => {
+    e.preventDefault()
+    if (draggedColumn) reorderColumn(draggedColumn, columnName)
+    setDraggedColumn(null)
+    setDragOverColumn(null)
+  }
+
+  const handleHeaderDragEnd = () => {
+    setDraggedColumn(null)
+    setDragOverColumn(null)
+  }
 
   const toggleSort = (columnName: string) => {
     const current = tab.sort
@@ -174,6 +271,10 @@ export function DataGrid({ tab }: { tab: TabState }) {
   const openCellContextMenu = (e: MouseEvent, column: string, value: string) => {
     e.preventDefault()
     setContextMenu({ x: e.clientX, y: e.clientY, column, value })
+  }
+
+  const openCellDetail = (column: string, value: unknown, duckType: string | undefined) => {
+    setCellDetail({ column, value, duckType })
   }
 
   const applyContextMenuFilter = (operator: FilterOperator, value: string) => {
@@ -221,7 +322,7 @@ export function DataGrid({ tab }: { tab: TabState }) {
               </button>
             )}
           </div>
-          {gridColumns.map((col) => {
+          {displayColumns.map((col) => {
             const cellText = row ? formatCell(row[col.name], columnTypeByName.get(col.name)) : '…'
             return (
               <div
@@ -230,6 +331,7 @@ export function DataGrid({ tab }: { tab: TabState }) {
                 style={{ width: col.width }}
                 role="cell"
                 onContextMenu={(e) => row && openCellContextMenu(e, col.name, cellText)}
+                onDoubleClick={() => row && openCellDetail(col.name, row[col.name], columnTypeByName.get(col.name))}
               >
                 {cellText}
               </div>
@@ -283,25 +385,47 @@ export function DataGrid({ tab }: { tab: TabState }) {
         <div className="data-grid__table" style={{ width: tableWidth }}>
           <div className="data-grid__head-row" role="row">
             <div className="data-grid__head-cell" style={{ width: TAG_COL_WIDTH }} role="columnheader" />
-            {gridColumns.map((col) => {
+            {displayColumns.map((col) => {
               const filterState = columnFilterInputs[col.name] ?? DEFAULT_COLUMN_FILTER
               const operatorNeedsValue =
                 USER_FACING_OPERATORS.find((o) => o.value === filterState.operator)?.needsValue ?? true
+              const headCellClasses = [
+                'data-grid__head-cell',
+                draggedColumn === col.name && 'is-dragging',
+                dragOverColumn === col.name && 'is-drag-over',
+              ]
+                .filter(Boolean)
+                .join(' ')
               return (
                 <div
                   key={col.name}
-                  className="data-grid__head-cell"
+                  className={headCellClasses}
                   style={{ width: col.width }}
                   role="columnheader"
+                  onDragOver={(e) => handleHeaderDragOver(e, col.name)}
+                  onDragLeave={() => setDragOverColumn((c) => (c === col.name ? null : c))}
+                  onDrop={(e) => handleHeaderDrop(e, col.name)}
                 >
-                  <button
-                    type="button"
-                    className="data-grid__header-btn"
-                    onClick={() => toggleSort(col.name)}
+                  <div
+                    className="data-grid__header-draghandle"
+                    draggable
+                    onDragStart={(e) => handleHeaderDragStart(e, col.name)}
+                    onDragEnd={handleHeaderDragEnd}
+                    title="Drag to reorder"
                   >
-                    {col.name}
-                    {tab.sort?.column === col.name && (tab.sort.direction === 'asc' ? ' ▲' : ' ▼')}
-                  </button>
+                    <button
+                      type="button"
+                      className="data-grid__header-btn"
+                      onClick={() => toggleSort(col.name)}
+                    >
+                      {col.name}
+                      {tab.sort?.column === col.name && (tab.sort.direction === 'asc' ? ' ▲' : ' ▼')}
+                    </button>
+                  </div>
+                  <div
+                    className={`data-grid__col-resize-handle${liveResize?.column === col.name ? ' is-resizing' : ''}`}
+                    onMouseDown={(e) => startColumnResize(e, col.name, col.width)}
+                  />
                   <div className="data-grid__col-filter-row">
                     <select
                       className="data-grid__col-filter-op"
@@ -404,6 +528,8 @@ export function DataGrid({ tab }: { tab: TabState }) {
           onClose={() => setContextMenu(null)}
         />
       )}
+
+      {cellDetail && <CellDetailModal state={cellDetail} onClose={() => setCellDetail(null)} />}
     </div>
   )
 }

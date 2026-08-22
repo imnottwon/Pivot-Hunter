@@ -17,7 +17,7 @@ export function FileDropZone() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     disabled: !ready,
-    accept: { 'text/csv': ['.csv'] },
+    accept: { 'text/csv': ['.csv'], 'application/json': ['.json'] },
     multiple: true,
   })
 
@@ -28,9 +28,9 @@ export function FileDropZone() {
     >
       <input {...getInputProps()} />
       {!ready && <p>Starting the query engine…</p>}
-      {ready && isIngesting && <p>Loading CSV…</p>}
+      {ready && isIngesting && <p>Loading file…</p>}
       {ready && !isIngesting && (
-        <p>Drag &amp; drop one or more CSV timeline files here, or click to browse</p>
+        <p>Drag &amp; drop one or more CSV or JSON timeline files here, or click to browse</p>
       )}
       {error && <p className="drop-zone__error">{error instanceof Error ? error.message : String(error)}</p>}
     </div>

@@ -1,12 +1,12 @@
 import { useMutation } from '@tanstack/react-query'
-import { ingestCsvFile } from '../../data-engine/duckdb/ingestCsv'
+import { ingestFile } from '../../data-engine/duckdb/ingestFile'
 import { useWorkspaceStore } from '../../state/workspaceStore'
 
 export function useFileIngestion() {
   const addTab = useWorkspaceStore((s) => s.addTab)
 
   const mutation = useMutation({
-    mutationFn: ingestCsvFile,
+    mutationFn: ingestFile,
     onSuccess: (result) => addTab(result),
   })
 

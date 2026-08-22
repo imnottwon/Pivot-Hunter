@@ -34,6 +34,13 @@ export interface TabState {
   /** Ordered nesting: [] = no grouping, otherwise groups rows by the first
    * column, then by the second within each, and so on to any depth. */
   groupByColumns: string[]
+  /** Display order for grid columns, by name. Independent of `columns` (the
+   * query/schema source of truth) so drag-to-reorder never touches query
+   * construction — cells are always looked up by name, not position. */
+  columnOrder: string[]
+  /** Sparse overrides of column display width, by name. A column absent here
+   * uses its type-based default width (see `columns.ts`). */
+  columnWidths: Record<string, number>
 }
 
 interface WorkspaceState {
@@ -51,6 +58,8 @@ interface WorkspaceState {
   setHighlightRules: (fileId: string, rules: HighlightRuleRecord[]) => void
   setHighlightedOnly: (fileId: string, highlightedOnly: boolean) => void
   setGroupByColumns: (fileId: string, columns: string[]) => void
+  setColumnOrder: (fileId: string, columnOrder: string[]) => void
+  setColumnWidth: (fileId: string, column: string, width: number) => void
   /** Sets filters and switches back to the grid view — the single drill-down
    * path used by every stats panel (frequency/gap/outlier). */
   applyDrilldownFilter: (fileId: string, filters: FilterExpr[]) => void
@@ -89,6 +98,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
         highlightRules: [],
         highlightedOnly: false,
         groupByColumns: [],
+        columnOrder: result.columns.map((c) => c.name),
+        columnWidths: {},
       }
       return { tabs: [...state.tabs, tab], activeTabId: tab.fileId }
     }),
@@ -128,6 +139,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
 
   setGroupByColumns: (fileId, groupByColumns) =>
     set((state) => ({ tabs: updateTab(state.tabs, fileId, { groupByColumns }) })),
+
+  setColumnOrder: (fileId, columnOrder) =>
+    set((state) => ({ tabs: updateTab(state.tabs, fileId, { columnOrder }) })),
+
+  setColumnWidth: (fileId, column, width) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.fileId === fileId ? { ...t, columnWidths: { ...t.columnWidths, [column]: width } } : t,
+      ),
+    })),
 
   applyDrilldownFilter: (fileId, filters) =>
     set((state) => ({
