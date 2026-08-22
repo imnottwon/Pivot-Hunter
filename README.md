@@ -75,6 +75,26 @@ The Pages build uses a dedicated `npm run build:gh-pages` script instead of the 
 
 To deploy manually instead of waiting on a push, go to the repo's **Actions** tab → "Deploy to GitHub Pages" → **Run workflow**.
 
+## Versioning
+
+Pivot Hunter follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`). Every notable change is recorded in [`CHANGELOG.md`](./CHANGELOG.md), and each release is tagged in git and published as a [GitHub Release](https://github.com/imnottwon/Pivot-Hunter/releases). The running app shows its own version number next to the title in the header, sourced from `package.json` at build time (see `vite.config.ts`).
+
+To cut a new release:
+
+1. Move the relevant entries from `CHANGELOG.md`'s `[Unreleased]` section into a new dated version section.
+2. Bump `"version"` in `package.json` to match (patch/minor/major depending on what changed).
+3. Commit both, then tag and push:
+   ```bash
+   git commit -am "Release vX.Y.Z"
+   git tag vX.Y.Z
+   git push && git push --tags
+   ```
+4. Publish the GitHub Release (pulls in that version's changelog section as the release notes):
+   ```bash
+   gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <(sed -n '/## \[X.Y.Z\]/,/## \[/p' CHANGELOG.md | sed '1d;$d')
+   ```
+   Pushing the tag alone doesn't publish anything to GitHub Pages by itself — that still happens via the normal push-to-`main` deploy workflow above.
+
 ## Troubleshooting
 
 - **`npm install` fails on a native/optional dependency** — make sure you're on Node 20+ (`node -v`); older Node versions aren't tested against this dependency set.

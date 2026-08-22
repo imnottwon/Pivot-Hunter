@@ -15,6 +15,7 @@ export function App() {
     <div className="app">
       <header className="app__header">
         <h1>Pivot Hunter</h1>
+        <span className="app__version">v{__APP_VERSION__}</span>
       </header>
 
       <FileDropZone />

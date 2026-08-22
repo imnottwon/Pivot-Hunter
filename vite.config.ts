@@ -1,6 +1,11 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as {
+  version: string
+}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -9,6 +14,12 @@ export default defineConfig(({ mode }) => ({
   // used by the deploy workflow) uses that prefix — local dev/build/preview
   // keep serving from root so they're unaffected.
   base: mode === 'gh-pages' ? '/Pivot-Hunter/' : '/',
+  // Exposes package.json's version to the client as a compile-time constant
+  // (see src/vite-env.d.ts for the type declaration) so the UI can show which
+  // version is actually running — useful once the app is hosted online.
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   plugins: [
     react(),
     viteStaticCopy({
