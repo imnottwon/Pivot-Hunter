@@ -25,3 +25,12 @@ iis_logs_30days.csv
 *.njsproj
 *.sln
 *.sw?
+node_modules/
+dist/
+.next/
+.tmp/
+output/
+.env
+.env*.local
+*token*.json
+browser-profile/
